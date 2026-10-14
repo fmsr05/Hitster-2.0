@@ -52,8 +52,7 @@
     </div>
 
     <div id="game-section" class="hidden">
-
-        <!-- NEU: Session Counter -->
+        
         <div id="session-info" class="text-sm font-bold text-gray-400 mb-4 bg-[#282828] py-2 rounded-lg border border-gray-700">
             Noch <span id="songs-left" class="text-[#1DB954]">0</span> Songs in dieser Session
         </div>
@@ -87,7 +86,7 @@
                 Nächster Song
             </button>
         </div>
-
+        
         <div class="flex justify-between mt-6 text-sm">
             <button onclick="zurueckZuPlaylists()" class="text-gray-400 hover:text-white underline decoration-gray-600">
                 Andere Playlist
@@ -103,7 +102,6 @@
     // ==========================================
     // 1. KONFIGURATION
     // ==========================================
-    // DEINE CLIENT ID HIER WIEDER EINTRAGEN:
     const CLIENT_ID = 'c2da8bc14dcf40d487a433c8b27e457c';
     const REDIRECT_URI = "https://fmsr05.github.io/Hitster-2.0/";
 
@@ -113,7 +111,6 @@
     let isPlaying = true;
     let aktuellePlaylistId = null;
 
-    // Lade das "Gedächtnis" aus dem Browser
     let sessionGespielt = JSON.parse(localStorage.getItem('hitster_session') || '{}');
 
     // ==========================================
@@ -144,12 +141,11 @@
     }
 
     async function loginMitSpotify() {
-        if (CLIENT_ID === 'DEINE_CLIENT_ID_HIER_EINTRAGEN') { alert("Bitte trage zuerst deine Client ID ein!"); return; }
         const codeVerifier  = generateRandomString(64);
         window.localStorage.setItem('code_verifier', codeVerifier);
         const authUrl = new URL("https://accounts.spotify.com/authorize");
         authUrl.search = new URLSearchParams({
-            response_type: 'code', client_id: CLIENT_ID,
+            response_type: 'code', client_id: CLIENT_ID, 
             scope: 'playlist-read-private playlist-read-collaborative user-modify-playback-state user-read-playback-state',
             code_challenge_method: 'S256', code_challenge: base64encode(sha256(codeVerifier)), redirect_uri: REDIRECT_URI
         }).toString();
@@ -161,7 +157,7 @@
             const response = await fetch('https://accounts.spotify.com/api/token', {
                 method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: new URLSearchParams({
-                    client_id: CLIENT_ID, grant_type: 'authorization_code', code: code,
+                    client_id: CLIENT_ID, grant_type: 'authorization_code', code: code, 
                     redirect_uri: REDIRECT_URI, code_verifier: localStorage.getItem('code_verifier')
                 })
             });
@@ -211,7 +207,6 @@
         document.getElementById('track-title').innerText = "Lade riesige Playlist...";
 
         try {
-            // NEU: Endlos-Schleife blättert durch die gesamte Playlist (alle 100er Blöcke)
             let alleItems = [];
             let url = `https://api.spotify.com/v1/playlists/${aktuellePlaylistId}/items?limit=100`;
 
@@ -220,21 +215,18 @@
                 if (!response.ok) throw new Error("API Fehler");
                 const data = await response.json();
                 alleItems = alleItems.concat(data.items);
-                url = data.next; // Spotify gibt uns hier den Link zu den nächsten 100 Songs
+                url = data.next; 
             }
-
-            // Defekte Lieder aussortieren
+            
             let valideTracks = alleItems.filter(e => {
                 const t = e.track || e.item || e;
                 return t && t.id && t.uri;
             });
 
-            // Session initialisieren falls neu
             if (!sessionGespielt[aktuellePlaylistId]) {
                 sessionGespielt[aktuellePlaylistId] = [];
             }
 
-            // Bereits gespielte Lieder aussortieren
             verfuegbareTracks = valideTracks.filter(e => {
                 const t = e.track || e.item || e;
                 return !sessionGespielt[aktuellePlaylistId].includes(t.uri);
@@ -243,19 +235,48 @@
             if (verfuegbareTracks.length === 0) {
                 if (valideTracks.length > 0) {
                     alert("Wahnsinn! Ihr habt alle Songs aus dieser Playlist gespielt. Die Session wird jetzt neu gestartet.");
-                    sessionZuruecksetzen(true); // Automatischer Neustart
+                    sessionZuruecksetzen(true); 
                 } else {
                     alert("Keine abspielbaren Songs gefunden.");
                     zurueckZuPlaylists();
                 }
                 return;
             }
-
+            
             ladeZufaelligenSong();
         } catch (error) {
             console.error('Fehler:', error);
             zurueckZuPlaylists();
         }
+    }
+
+    // ==========================================
+    // NEU: GERÄTE-SCANNER (Der Holzhammer)
+    // ==========================================
+    async function holeGeraeteId() {
+        try {
+            const response = await fetch('https://api.spotify.com/v1/me/player/devices', {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            if (!response.ok) return null;
+            
+            const data = await response.json();
+            if (data.devices && data.devices.length > 0) {
+                // 1. Priorität: Das Gerät, das aktuell aktiv Musik spielt oder pausiert hat
+                let device = data.devices.find(d => d.is_active);
+                
+                // 2. Priorität: Falls nichts aktiv ist, such dir das erste Smartphone
+                if (!device) device = data.devices.find(d => d.type.toLowerCase() === 'smartphone');
+                
+                // 3. Priorität: Nimm einfach das erste Gerät, das Spotify findet
+                if (!device) device = data.devices[0];
+                
+                return device.id;
+            }
+        } catch (error) {
+            console.error("Geräte-Scanner Fehler:", error);
+        }
+        return null;
     }
 
     // ==========================================
@@ -269,34 +290,44 @@
         }
         versteckeMetadaten();
 
-        // Song zufällig wählen und SOFORT aus der Liste der verfügbaren Songs werfen
         const zufallsIndex = Math.floor(Math.random() * verfuegbareTracks.length);
         const gewaehltesElement = verfuegbareTracks.splice(zufallsIndex, 1)[0]; 
         aktuellerTrack = gewaehltesElement.track || gewaehltesElement.item || gewaehltesElement;
 
-        // Gedächtnis updaten und im Browser speichern
         sessionGespielt[aktuellePlaylistId].push(aktuellerTrack.uri);
         localStorage.setItem('hitster_session', JSON.stringify(sessionGespielt));
         
         aktualisiereCounter();
 
-        // Abspielen auf dem Handy (Mit strenger Fehlerüberwachung)
+        // 1. Das exakte Ziel-Gerät anvisieren
+        const targetDeviceId = await holeGeraeteId();
+        let playUrl = `https://api.spotify.com/v1/me/player/play`;
+        
+        // 2. Den Link um das Ziel-Gerät erweitern, falls gefunden
+        if (targetDeviceId) {
+            playUrl += `?device_id=${targetDeviceId}`;
+        }
+
+        // 3. Den Befehl abschicken
         try {
-            const response = await fetch(`https://api.spotify.com/v1/me/player/play`, {
+            const response = await fetch(playUrl, {
                 method: 'PUT',
                 headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ uris: [aktuellerTrack.uri] })
             });
 
             if (response.ok) {
-                isPlaying = true; // Alles hat geklappt
+                isPlaying = true;
             } else {
-                // Spotify meldet einen Fehler, den wir jetzt erzwingen anzuzeigen!
                 const errorData = await response.json();
-                alert(`Spotify blockiert!\nGrund: ${errorData.error.message}\nStatus Code: ${response.status}`);
+                if (response.status === 404) {
+                    alert("Kein Spotify-Gerät gefunden! Öffne bitte die Spotify-App und starte kurz ein Lied.");
+                } else if (response.status === 403) {
+                    alert("Wiedergabe blockiert! Spotify Premium wird benötigt oder dein Token ist abgelaufen. Bitte Seite neu laden.");
+                }
             }
         } catch (error) { 
-            alert("Schwerer Netzwerkfehler beim Senden an Spotify.");
+            console.error("Wiedergabefehler:", error); 
         }
     }
 
@@ -306,7 +337,7 @@
 
     function sessionZuruecksetzen(automatischerNeustart = false) {
         if (!automatischerNeustart && !confirm("Willst du die Session wirklich zurücksetzen? Bereits gespielte Songs können dann wieder drankommen.")) return;
-
+        
         if (aktuellePlaylistId) {
             sessionGespielt[aktuellePlaylistId] = [];
             localStorage.setItem('hitster_session', JSON.stringify(sessionGespielt));
