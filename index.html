@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digitales Hitster (Session Edition)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        :root {
+            --spotify-green: #1DB954;
+            --spotify-green-hover: #1ed760;
+            --spotify-dark: #121212;
+            --spotify-card: #181818;
+        }
+        body { background-color: var(--spotify-dark); color: white; font-family: 'Inter', sans-serif; }
+        .btn-spotify { background-color: var(--spotify-green); color: black; transition: all 0.2s ease-in-out; }
+        .btn-spotify:hover { background-color: var(--spotify-green-hover); transform: scale(1.02); }
+        .btn-spotify:active { transform: scale(0.98); }
+        .btn-outline { border: 2px solid var(--spotify-green); color: var(--spotify-green); transition: all 0.2s ease-in-out; }
+        .btn-outline:hover { background-color: var(--spotify-green); color: black; }
+        .card { background-color: var(--spotify-card); border: 1px solid #333; }
+        .hidden-text { color: #b3b3b3; font-weight: bold; letter-spacing: 2px; }
+        .revealed-text { color: white; font-weight: bold; animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+        select { scrollbar-width: thin; scrollbar-color: var(--spotify-green) var(--spotify-card); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+<div class="card rounded-xl p-8 max-w-md w-full shadow-2xl text-center">
+    <h1 class="text-3xl font-extrabold mb-8 tracking-tight text-white">
+        Digitales <span style="color: var(--spotify-green)">Hitster</span>
+    </h1>
+
+    <div id="login-section" class="block">
+        <p class="text-gray-400 mb-6 text-sm">Logge dich ein, um deine Spotify-App fernzusteuern.</p>
+        <button onclick="loginMitSpotify()" class="btn-spotify font-bold py-3 px-8 rounded-full w-full">
+            Mit Spotify verbinden
+        </button>
+    </div>
+
+    <div id="playlist-section" class="hidden">
+        <p class="text-gray-300 mb-4 font-semibold">Wähle eine deiner Playlists:</p>
+        <select id="playlist-dropdown" class="w-full bg-[#282828] text-white border border-gray-600 rounded-lg p-3 mb-6 focus:outline-none focus:border-[#1DB954]">
+            <option value="">Lade Playlists...</option>
+        </select>
+        <button onclick="starteSpiel()" class="btn-spotify font-bold py-3 px-8 rounded-full w-full mb-4">
+            Spiel starten
+        </button>
+        <p class="text-xs text-gray-500 mt-2">Die Session speichert sich automatisch.</p>
+    </div>
+
+    <div id="game-section" class="hidden">
+
+        <!-- NEU: Session Counter -->
+        <div id="session-info" class="text-sm font-bold text-gray-400 mb-4 bg-[#282828] py-2 rounded-lg border border-gray-700">
+            Noch <span id="songs-left" class="text-[#1DB954]">0</span> Songs in dieser Session
+        </div>
+
+        <div class="mb-6 bg-[#282828] p-4 rounded-lg shadow-inner flex justify-center gap-4 border border-gray-700">
+            <button onclick="togglePlay()" class="btn-outline font-bold py-2 px-6 rounded-full w-full">
+                ⏯ Pause / Play
+            </button>
+        </div>
+
+        <div class="bg-[#282828] p-6 rounded-lg mb-6 text-left border border-gray-700 relative overflow-hidden">
+            <div class="mb-4 border-b border-gray-700 pb-2">
+                <p class="text-xs text-gray-400 uppercase tracking-widest">Titel</p>
+                <p id="track-title" class="hidden-text text-xl">???</p>
+            </div>
+            <div class="mb-4 border-b border-gray-700 pb-2">
+                <p class="text-xs text-gray-400 uppercase tracking-widest">Interpret</p>
+                <p id="track-artist" class="hidden-text text-lg">???</p>
+            </div>
+            <div>
+                <p class="text-xs text-gray-400 uppercase tracking-widest">Jahr</p>
+                <p id="track-year" class="hidden-text text-lg">???</p>
+            </div>
+        </div>
+
+        <div class="flex flex-col gap-3">
+            <button id="btn-reveal" onclick="aufloesen()" class="bg-white text-black hover:bg-gray-200 font-bold py-3 px-8 rounded-full w-full">
+                Auflösen
+            </button>
+            <button id="btn-next" onclick="ladeZufaelligenSong()" class="btn-spotify font-bold py-3 px-8 rounded-full w-full hidden">
+                Nächster Song
+            </button>
+        </div>
+
+        <div class="flex justify-between mt-6 text-sm">
+            <button onclick="zurueckZuPlaylists()" class="text-gray-400 hover:text-white underline decoration-gray-600">
+                Andere Playlist
+            </button>
+            <button onclick="sessionZuruecksetzen()" class="text-red-400 hover:text-red-300 underline decoration-red-900">
+                Session Neustart
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // 1. KONFIGURATION
+    // ==========================================
+    // DEINE CLIENT ID HIER WIEDER EINTRAGEN:
+    const CLIENT_ID = 'c2da8bc14dcf40d487a433c8b27e457c';
+    const REDIRECT_URI = window.location.origin + "/";
+
+    let accessToken = localStorage.getItem('spotify_access_token') || '';
+    let verfuegbareTracks = [];
+    let aktuellerTrack = null;
+    let isPlaying = true;
+    let aktuellePlaylistId = null;
+
+    // Lade das "Gedächtnis" aus dem Browser
+    let sessionGespielt = JSON.parse(localStorage.getItem('hitster_session') || '{}');
+
+    // ==========================================
+    // 2. INITIALISIERUNG & AUTHENTIFIZIERUNG
+    // ==========================================
+    window.onload = async () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        let code = urlParams.get('code');
+        if (code) {
+            await getToken(code);
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        if (accessToken) {
+            zeigeBereich('playlist-section');
+            ladeEigenePlaylists();
+        }
+    };
+
+    function generateRandomString(length) {
+        let text = '';
+        const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        for (let i = 0; i < length; i++) text += possible.charAt(Math.floor(Math.random() * possible.length));
+        return text;
+    }
+    function sha256(plain) { return CryptoJS.SHA256(plain); }
+    function base64encode(hash) {
+        return CryptoJS.enc.Base64.stringify(hash).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+    }
+
+    async function loginMitSpotify() {
+        if (CLIENT_ID === 'DEINE_CLIENT_ID_HIER_EINTRAGEN') { alert("Bitte trage zuerst deine Client ID ein!"); return; }
+        const codeVerifier  = generateRandomString(64);
+        window.localStorage.setItem('code_verifier', codeVerifier);
+        const authUrl = new URL("https://accounts.spotify.com/authorize");
+        authUrl.search = new URLSearchParams({
+            response_type: 'code', client_id: CLIENT_ID,
+            scope: 'playlist-read-private playlist-read-collaborative user-modify-playback-state user-read-playback-state',
+            code_challenge_method: 'S256', code_challenge: base64encode(sha256(codeVerifier)), redirect_uri: REDIRECT_URI
+        }).toString();
+        window.location.href = authUrl.toString();
+    }
+
+    async function getToken(code) {
+        try {
+            const response = await fetch('https://accounts.spotify.com/api/token', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    client_id: CLIENT_ID, grant_type: 'authorization_code', code: code,
+                    redirect_uri: REDIRECT_URI, code_verifier: localStorage.getItem('code_verifier')
+                })
+            });
+            const data = await response.json();
+            if (data.access_token) {
+                accessToken = data.access_token;
+                localStorage.setItem('spotify_access_token', accessToken);
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    async function togglePlay() {
+        try {
+            await fetch(`https://api.spotify.com/v1/me/player/${isPlaying ? 'pause' : 'play'}`, {
+                method: 'PUT', headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            isPlaying = !isPlaying;
+        } catch(e) { console.log(e); }
+    }
+
+    // ==========================================
+    // 3. PLAYLISTS & ENDLOS-LADEN
+    // ==========================================
+    async function ladeEigenePlaylists() {
+        try {
+            const response = await fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            const data = await response.json();
+            const selectMenu = document.querySelector('select');
+            selectMenu.innerHTML = '';
+            data.items.forEach(p => {
+                if (p && p.id) {
+                    const option = document.createElement('option');
+                    option.value = p.id; option.textContent = p.name;
+                    selectMenu.appendChild(option);
+                }
+            });
+        } catch (e) { console.error(e); }
+    }
+
+    async function starteSpiel() {
+        aktuellePlaylistId = document.querySelector('select').value;
+        if (!aktuellePlaylistId) return;
+
+        zeigeBereich('game-section');
+        document.getElementById('track-title').innerText = "Lade riesige Playlist...";
+
+        try {
+            // NEU: Endlos-Schleife blättert durch die gesamte Playlist (alle 100er Blöcke)
+            let alleItems = [];
+            let url = `https://api.spotify.com/v1/playlists/${aktuellePlaylistId}/items?limit=100`;
+
+            while (url) {
+                const response = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+                if (!response.ok) throw new Error("API Fehler");
+                const data = await response.json();
+                alleItems = alleItems.concat(data.items);
+                url = data.next; // Spotify gibt uns hier den Link zu den nächsten 100 Songs
+            }
+
+            // Defekte Lieder aussortieren
+            let valideTracks = alleItems.filter(e => {
+                const t = e.track || e.item || e;
+                return t && t.id && t.uri;
+            });
+
+            // Session initialisieren falls neu
+            if (!sessionGespielt[aktuellePlaylistId]) {
+                sessionGespielt[aktuellePlaylistId] = [];
+            }
+
+            // Bereits gespielte Lieder aussortieren
+            verfuegbareTracks = valideTracks.filter(e => {
+                const t = e.track || e.item || e;
+                return !sessionGespielt[aktuellePlaylistId].includes(t.uri);
+            });
+
+            if (verfuegbareTracks.length === 0) {
+                if (valideTracks.length > 0) {
+                    alert("Wahnsinn! Ihr habt alle Songs aus dieser Playlist gespielt. Die Session wird jetzt neu gestartet.");
+                    sessionZuruecksetzen(true); // Automatischer Neustart
+                } else {
+                    alert("Keine abspielbaren Songs gefunden.");
+                    zurueckZuPlaylists();
+                }
+                return;
+            }
+
+            ladeZufaelligenSong();
+        } catch (error) {
+            console.error('Fehler:', error);
+            zurueckZuPlaylists();
+        }
+    }
+
+    // ==========================================
+    // 4. SESSION LOGIK & SPIEL
+    // ==========================================
+    async function ladeZufaelligenSong() {
+        if (verfuegbareTracks.length === 0) {
+            alert("Runde beendet! Es sind keine ungespielten Songs mehr übrig.");
+            zurueckZuPlaylists();
+            return;
+        }
+        versteckeMetadaten();
+
+        // Song zufällig wählen und SOFORT aus der Liste der verfügbaren Songs werfen
+        const zufallsIndex = Math.floor(Math.random() * verfuegbareTracks.length);
+        const gewaehltesElement = verfuegbareTracks.splice(zufallsIndex, 1)[0];
+        aktuellerTrack = gewaehltesElement.track || gewaehltesElement.item || gewaehltesElement;
+
+        // Gedächtnis updaten und im Browser speichern
+        sessionGespielt[aktuellePlaylistId].push(aktuellerTrack.uri);
+        localStorage.setItem('hitster_session', JSON.stringify(sessionGespielt));
+
+        aktualisiereCounter();
+
+        // Abspielen auf dem Handy
+        try {
+            const response = await fetch(`https://api.spotify.com/v1/me/player/play`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uris: [aktuellerTrack.uri] })
+            });
+
+            if (response.status === 404) {
+                alert("Bitte öffne kurz die echte Spotify-App und starte dort ein Lied, um die Verbindung zu wecken.");
+            } else { isPlaying = true; }
+        } catch (error) { console.error("Wiedergabefehler:", error); }
+    }
+
+    function aktualisiereCounter() {
+        document.getElementById('songs-left').innerText = verfuegbareTracks.length;
+    }
+
+    function sessionZuruecksetzen(automatischerNeustart = false) {
+        if (!automatischerNeustart && !confirm("Willst du die Session wirklich zurücksetzen? Bereits gespielte Songs können dann wieder drankommen.")) return;
+
+        if (aktuellePlaylistId) {
+            sessionGespielt[aktuellePlaylistId] = [];
+            localStorage.setItem('hitster_session', JSON.stringify(sessionGespielt));
+            if (!automatischerNeustart) alert("Session erfolgreich zurückgesetzt! Wähle die Playlist einfach neu an.");
+            zurueckZuPlaylists();
+        }
+    }
+
+    function aufloesen() {
+        if (!aktuellerTrack) return;
+        const tEl = document.getElementById('track-title'), aEl = document.getElementById('track-artist'), yEl = document.getElementById('track-year');
+        tEl.innerText = aktuellerTrack.name;
+        aEl.innerText = aktuellerTrack.artists.map(a => a.name).join(', ');
+        yEl.innerText = (aktuellerTrack.album.release_date || "Unbekannt").split('-')[0];
+
+        tEl.className = "revealed-text text-xl text-[#1DB954]";
+        aEl.className = "revealed-text text-lg"; yEl.className = "revealed-text text-lg";
+
+        document.getElementById('btn-reveal').classList.add('hidden');
+        document.getElementById('btn-next').classList.remove('hidden');
+    }
+
+    function versteckeMetadaten() {
+        document.getElementById('track-title').innerText = "???"; document.getElementById('track-artist').innerText = "???"; document.getElementById('track-year').innerText = "???";
+        document.getElementById('track-title').className = "hidden-text text-xl"; document.getElementById('track-artist').className = "hidden-text text-lg"; document.getElementById('track-year').className = "hidden-text text-lg";
+        document.getElementById('btn-reveal').classList.remove('hidden'); document.getElementById('btn-next').classList.add('hidden');
+    }
+
+    function zurueckZuPlaylists() { zeigeBereich('playlist-section'); }
+
+    function zeigeBereich(bereichId) {
+        ['login-section', 'playlist-section', 'game-section'].forEach(id => document.getElementById(id).classList.add('hidden'));
+        document.getElementById(bereichId).classList.remove('hidden');
+    }
+</script>
+</body>
+</html>
