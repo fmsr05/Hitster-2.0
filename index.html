@@ -271,16 +271,16 @@
 
         // Song zufällig wählen und SOFORT aus der Liste der verfügbaren Songs werfen
         const zufallsIndex = Math.floor(Math.random() * verfuegbareTracks.length);
-        const gewaehltesElement = verfuegbareTracks.splice(zufallsIndex, 1)[0];
+        const gewaehltesElement = verfuegbareTracks.splice(zufallsIndex, 1)[0]; 
         aktuellerTrack = gewaehltesElement.track || gewaehltesElement.item || gewaehltesElement;
 
         // Gedächtnis updaten und im Browser speichern
         sessionGespielt[aktuellePlaylistId].push(aktuellerTrack.uri);
         localStorage.setItem('hitster_session', JSON.stringify(sessionGespielt));
-
+        
         aktualisiereCounter();
 
-        // Abspielen auf dem Handy
+        // Abspielen auf dem Handy (Mit strenger Fehlerüberwachung)
         try {
             const response = await fetch(`https://api.spotify.com/v1/me/player/play`, {
                 method: 'PUT',
@@ -288,10 +288,16 @@
                 body: JSON.stringify({ uris: [aktuellerTrack.uri] })
             });
 
-            if (response.status === 404) {
-                alert("Bitte öffne kurz die echte Spotify-App und starte dort ein Lied, um die Verbindung zu wecken.");
-            } else { isPlaying = true; }
-        } catch (error) { console.error("Wiedergabefehler:", error); }
+            if (response.ok) {
+                isPlaying = true; // Alles hat geklappt
+            } else {
+                // Spotify meldet einen Fehler, den wir jetzt erzwingen anzuzeigen!
+                const errorData = await response.json();
+                alert(`Spotify blockiert!\nGrund: ${errorData.error.message}\nStatus Code: ${response.status}`);
+            }
+        } catch (error) { 
+            alert("Schwerer Netzwerkfehler beim Senden an Spotify.");
+        }
     }
 
     function aktualisiereCounter() {
