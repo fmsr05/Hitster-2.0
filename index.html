@@ -372,30 +372,65 @@
     }
 
     function aufloesen() {
-        if (!aktuellerTrack) return;
+       if (!aktuellerTrack) return;
         const tEl = document.getElementById('track-title'), aEl = document.getElementById('track-artist'), yEl = document.getElementById('track-year');
+        
         tEl.innerText = aktuellerTrack.name;
+        const hauptInterpret = aktuellerTrack.artists[0].name;
         aEl.innerText = aktuellerTrack.artists.map(a => a.name).join(', ');
-        yEl.innerText = (aktuellerTrack.album.release_date || "Unbekannt").split('-')[0];
-
+        
+        yEl.innerText = "Recherchiere im Netz..."; 
         tEl.className = "revealed-text text-xl text-[#1DB954]";
-        aEl.className = "revealed-text text-lg"; yEl.className = "revealed-text text-lg";
+        aEl.className = "revealed-text text-lg"; 
+        yEl.className = "revealed-text text-lg text-yellow-500"; 
 
         document.getElementById('btn-reveal').classList.add('hidden');
         document.getElementById('btn-next').classList.remove('hidden');
-    }
 
-    function versteckeMetadaten() {
-        document.getElementById('track-title').innerText = "???"; document.getElementById('track-artist').innerText = "???"; document.getElementById('track-year').innerText = "???";
-        document.getElementById('track-title').className = "hidden-text text-xl"; document.getElementById('track-artist').className = "hidden-text text-lg"; document.getElementById('track-year').className = "hidden-text text-lg";
-        document.getElementById('btn-reveal').classList.remove('hidden'); document.getElementById('btn-next').classList.add('hidden');
-    }
+        try {
+            // Titel für eine saubere Suche bereinigen (z.B. " - Remastered 2011" wegschneiden)
+            const reinerTitel = aktuellerTrack.name.split(' - ')[0].split(' (')[0];
+            let finalesJahr = parseInt((aktuellerTrack.album.release_date || "9999").split('-')[0]);
 
-    function zurueckZuPlaylists() { zeigeBereich('playlist-section'); }
+            // 1. Die externe Suche: Wir fragen die Apple iTunes Datenbank ab
+            const suchBegriff = `${hauptInterpret} ${reinerTitel}`;
+            try {
+                const itunesResponse = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(suchBegriff)}&entity=song&limit=3`);
+                const itunesData = await itunesResponse.json();
 
-    function zeigeBereich(bereichId) {
-        ['login-section', 'playlist-section', 'game-section'].forEach(id => document.getElementById(id).classList.add('hidden'));
-        document.getElementById(bereichId).classList.remove('hidden');
+                if (itunesData.results && itunesData.results.length > 0) {
+                    // Apple hat oft das exakte Original-Release-Datum gespeichert
+                    const itunesJahr = parseInt(itunesData.results[0].releaseDate.substring(0, 4));
+                    if (itunesJahr < finalesJahr) {
+                        finalesJahr = itunesJahr;
+                    }
+                }
+            } catch (appleError) {
+                console.log("Apple-Suche fehlgeschlagen, nutze Spotify-Fallback.");
+            }
+
+            // 2. Fallback: Zur Sicherheit nochmal Spotifys älteste Version checken
+            const spotifyResponse = await fetch(`https://api.spotify.com/v1/search?q=track:${encodeURIComponent(reinerTitel)} artist:${encodeURIComponent(hauptInterpret)}&type=track&limit=20`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            const spotifyData = await spotifyResponse.json();
+            
+            if (spotifyData.tracks && spotifyData.tracks.items.length > 0) {
+                spotifyData.tracks.items.forEach(track => {
+                    const spotifyJahr = parseInt((track.album.release_date || "9999").split('-')[0]);
+                    if (spotifyJahr < finalesJahr) {
+                        finalesJahr = spotifyJahr;
+                    }
+                });
+            }
+
+            yEl.innerText = finalesJahr === 9999 ? "Unbekannt" : finalesJahr;
+            yEl.className = "revealed-text text-lg";
+        } catch (error) {
+            console.error("Fehler bei der externen Suche:", error);
+            yEl.innerText = (aktuellerTrack.album.release_date || "Unbekannt").split('-')[0];
+            yEl.className = "revealed-text text-lg";
+        }
     }
 </script>
 </body>
