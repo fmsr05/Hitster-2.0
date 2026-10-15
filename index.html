@@ -370,7 +370,7 @@
     }
 
     // ==========================================
-    // NEU: Die Apple iTunes / Spotify Zeitreise
+    // DEEP SCAN ZEITREISE (Findet auch gut versteckte Singles)
     // ==========================================
     async function aufloesen() {
         if (!aktuellerTrack) return;
@@ -380,7 +380,7 @@
         const hauptInterpret = aktuellerTrack.artists[0].name;
         aEl.innerText = aktuellerTrack.artists.map(a => a.name).join(', ');
         
-        yEl.innerText = "Recherchiere im Netz..."; 
+        yEl.innerText = "Deep Scan läuft..."; 
         tEl.className = "revealed-text text-xl text-[#1DB954]";
         aEl.className = "revealed-text text-lg"; 
         yEl.className = "revealed-text text-lg text-yellow-500"; 
@@ -394,20 +394,24 @@
 
             const suchBegriff = `${hauptInterpret} ${reinerTitel}`;
             try {
-                const itunesResponse = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(suchBegriff)}&entity=song&limit=3`);
+                // Erhöhtes Limit bei Apple (15)
+                const itunesResponse = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(suchBegriff)}&entity=song&limit=15`);
                 const itunesData = await itunesResponse.json();
 
                 if (itunesData.results && itunesData.results.length > 0) {
-                    const itunesJahr = parseInt(itunesData.results[0].releaseDate.substring(0, 4));
-                    if (itunesJahr < finalesJahr) {
-                        finalesJahr = itunesJahr;
-                    }
+                    itunesData.results.forEach(track => {
+                        const itunesJahr = parseInt(track.releaseDate.substring(0, 4));
+                        if (itunesJahr < finalesJahr) {
+                            finalesJahr = itunesJahr;
+                        }
+                    });
                 }
             } catch (appleError) {
-                console.log("Apple-Suche fehlgeschlagen, nutze Spotify-Fallback.");
+                console.log("Apple-Suche fehlgeschlagen.");
             }
 
-            const spotifyResponse = await fetch(`https://api.spotify.com/v1/search?q=track:${encodeURIComponent(reinerTitel)} artist:${encodeURIComponent(hauptInterpret)}&type=track&limit=20`, {
+            // Erhöhtes Limit bei Spotify (50) um versteckte Singles zu finden
+            const spotifyResponse = await fetch(`https://api.spotify.com/v1/search?q=track:${encodeURIComponent(reinerTitel)} artist:${encodeURIComponent(hauptInterpret)}&type=track&limit=50`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
             const spotifyData = await spotifyResponse.json();
