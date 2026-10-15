@@ -370,7 +370,7 @@
     }
 
     // ==========================================
-    // DEEP SCAN ZEITREISE (Findet auch gut versteckte Singles)
+    // DEEP SCAN ZEITREISE (Strikte Namensprüfung)
     // ==========================================
     async function aufloesen() {
         if (!aktuellerTrack) return;
@@ -380,7 +380,7 @@
         const hauptInterpret = aktuellerTrack.artists[0].name;
         aEl.innerText = aktuellerTrack.artists.map(a => a.name).join(', ');
         
-        yEl.innerText = "Deep Scan läuft..."; 
+        yEl.innerText = "Prüfe echte Original-Jahre..."; 
         tEl.className = "revealed-text text-xl text-[#1DB954]";
         aEl.className = "revealed-text text-lg"; 
         yEl.className = "revealed-text text-lg text-yellow-500"; 
@@ -392,17 +392,23 @@
             const reinerTitel = aktuellerTrack.name.split(' - ')[0].split(' (')[0];
             let finalesJahr = parseInt((aktuellerTrack.album.release_date || "9999").split('-')[0]);
 
+            // HILFSFUNKTION: Entfernt Sonderzeichen/Leerzeichen für einen sicheren Vergleich
+            const normalize = (str) => str ? str.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+            const targetName = normalize(reinerTitel);
+
             const suchBegriff = `${hauptInterpret} ${reinerTitel}`;
             try {
-                // Erhöhtes Limit bei Apple (15)
                 const itunesResponse = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(suchBegriff)}&entity=song&limit=15`);
                 const itunesData = await itunesResponse.json();
 
                 if (itunesData.results && itunesData.results.length > 0) {
                     itunesData.results.forEach(track => {
-                        const itunesJahr = parseInt(track.releaseDate.substring(0, 4));
-                        if (itunesJahr < finalesJahr) {
-                            finalesJahr = itunesJahr;
+                        // TÜRSTEHER: Stimmt der gefundene Name wirklich mit dem gesuchten Song überein?
+                        if (track.trackName && normalize(track.trackName).includes(targetName)) {
+                            const itunesJahr = parseInt(track.releaseDate.substring(0, 4));
+                            if (itunesJahr < finalesJahr) {
+                                finalesJahr = itunesJahr;
+                            }
                         }
                     });
                 }
@@ -410,7 +416,6 @@
                 console.log("Apple-Suche fehlgeschlagen.");
             }
 
-            // Erhöhtes Limit bei Spotify (50) um versteckte Singles zu finden
             const spotifyResponse = await fetch(`https://api.spotify.com/v1/search?q=track:${encodeURIComponent(reinerTitel)} artist:${encodeURIComponent(hauptInterpret)}&type=track&limit=50`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
@@ -418,9 +423,12 @@
             
             if (spotifyData.tracks && spotifyData.tracks.items.length > 0) {
                 spotifyData.tracks.items.forEach(track => {
-                    const spotifyJahr = parseInt((track.album.release_date || "9999").split('-')[0]);
-                    if (spotifyJahr < finalesJahr) {
-                        finalesJahr = spotifyJahr;
+                    // TÜRSTEHER: Stimmt der Name bei Spotify überein?
+                    if (track.name && normalize(track.name).includes(targetName)) {
+                        const spotifyJahr = parseInt((track.album.release_date || "9999").split('-')[0]);
+                        if (spotifyJahr < finalesJahr) {
+                            finalesJahr = spotifyJahr;
+                        }
                     }
                 });
             }
