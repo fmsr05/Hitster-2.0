@@ -189,13 +189,16 @@
             const data = await response.json();
             const selectMenu = document.querySelector('select');
             selectMenu.innerHTML = '';
-            data.items.forEach(p => {
-                if (p && p.id) {
-                    const option = document.createElement('option');
-                    option.value = p.id; option.textContent = p.name;
-                    selectMenu.appendChild(option);
-                }
-            });
+            
+            if (data && data.items) {
+                data.items.forEach(p => {
+                    if (p && p.id) {
+                        const option = document.createElement('option');
+                        option.value = p.id; option.textContent = p.name;
+                        selectMenu.appendChild(option);
+                    }
+                });
+            }
         } catch (e) { console.error(e); }
     }
 
@@ -209,27 +212,42 @@
         try {
             let alleItems = [];
             let url = `https://api.spotify.com/v1/playlists/${aktuellePlaylistId}/items?limit=100`;
-            let absoluteIndex = 0; // NEU: Wir zählen die absolute Position des Songs in der Playlist
+            let absoluteIndex = 0; 
 
+            // Schleife mit strikter Fehlerüberwachung
             while (url) {
                 const response = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
-                if (!response.ok) throw new Error("API Fehler");
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        alert("Dein Login ist abgelaufen! Du wirst zur Startseite weitergeleitet, um dich neu einzuloggen.");
+                        window.localStorage.removeItem('spotify_access_token');
+                        window.location.href = REDIRECT_URI;
+                        return;
+                    }
+                    throw new Error(`Spotify Server Fehler (Code: ${response.status})`);
+                }
+                
                 const data = await response.json();
                 
-                // Wir speichern die exakte Position (Nummer) für jeden Song
-                data.items.forEach(e => {
-                    const t = e.track || e.item || e;
-                    if (t) {
-                        t.playlist_position = absoluteIndex;
-                    }
-                    absoluteIndex++;
-                });
-
-                alleItems = alleItems.concat(data.items);
+                if (data && data.items) {
+                    data.items.forEach(e => {
+                        if (e) {
+                            const t = e.track || e.item || e;
+                            // Nur echte Objekte anfassen, um Abstürze bei kaputten Songs zu vermeiden
+                            if (t && typeof t === 'object') {
+                                t.playlist_position = absoluteIndex;
+                            }
+                        }
+                        absoluteIndex++;
+                    });
+                    alleItems = alleItems.concat(data.items);
+                }
                 url = data.next; 
             }
             
             let valideTracks = alleItems.filter(e => {
+                if (!e) return false;
                 const t = e.track || e.item || e;
                 return t && t.id && t.uri && !t.is_local;
             });
@@ -239,6 +257,7 @@
             }
 
             verfuegbareTracks = valideTracks.filter(e => {
+                if (!e) return false;
                 const t = e.track || e.item || e;
                 return !sessionGespielt[aktuellePlaylistId].includes(t.uri);
             });
@@ -248,7 +267,7 @@
                     alert("Wahnsinn! Ihr habt alle Songs aus dieser Playlist gespielt. Die Session wird jetzt neu gestartet.");
                     sessionZuruecksetzen(true); 
                 } else {
-                    alert("Keine abspielbaren Songs gefunden.");
+                    alert("Diese Playlist enthält leider keine abspielbaren Songs.");
                     zurueckZuPlaylists();
                 }
                 return;
@@ -256,7 +275,8 @@
             
             ladeZufaelligenSong();
         } catch (error) {
-            console.error('Fehler:', error);
+            console.error('Ladefehler:', error);
+            alert("Fehler beim Laden der Playlist:\n" + error.message);
             zurueckZuPlaylists();
         }
     }
@@ -315,7 +335,6 @@
                 headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     context_uri: playlistContextUri,
-                    // NEU: Statt der fehleranfälligen Track-URI nutzen wir jetzt die unbestechliche Position!
                     offset: { position: aktuellerTrack.playlist_position }
                 })
             });
@@ -327,7 +346,7 @@
                 if (response.status === 404) {
                     alert("Kein Spotify-Gerät gefunden! Öffne bitte die Spotify-App und starte kurz ein Lied.");
                 } else if (response.status === 403) {
-                    alert("Wiedergabe blockiert! Spotify Premium wird benötigt oder dein Token ist abgelaufen. Bitte Seite neu laden.");
+                    alert("Wiedergabe blockiert! Eventuell ist die Playlist nicht freigegeben oder dein Token ist abgelaufen.");
                 } else {
                     alert(`Spotify Fehler: ${errorData.error.message}`);
                 }
