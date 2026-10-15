@@ -209,16 +209,26 @@
         try {
             let alleItems = [];
             let url = `https://api.spotify.com/v1/playlists/${aktuellePlaylistId}/items?limit=100`;
+            let absoluteIndex = 0; // NEU: Wir zählen die absolute Position des Songs in der Playlist
 
             while (url) {
                 const response = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
                 if (!response.ok) throw new Error("API Fehler");
                 const data = await response.json();
+                
+                // Wir speichern die exakte Position (Nummer) für jeden Song
+                data.items.forEach(e => {
+                    const t = e.track || e.item || e;
+                    if (t) {
+                        t.playlist_position = absoluteIndex;
+                    }
+                    absoluteIndex++;
+                });
+
                 alleItems = alleItems.concat(data.items);
                 url = data.next; 
             }
             
-            // NEU: Filtere defekte Tracks UND lokale MP3s aus
             let valideTracks = alleItems.filter(e => {
                 const t = e.track || e.item || e;
                 return t && t.id && t.uri && !t.is_local;
@@ -297,7 +307,6 @@
             playUrl += `?device_id=${targetDeviceId}`;
         }
 
-        // NEU: Der Playlist-Trick (context_uri anstelle von bloßen uris)
         const playlistContextUri = `spotify:playlist:${aktuellePlaylistId}`;
 
         try {
@@ -306,7 +315,8 @@
                 headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     context_uri: playlistContextUri,
-                    offset: { uri: aktuellerTrack.uri }
+                    // NEU: Statt der fehleranfälligen Track-URI nutzen wir jetzt die unbestechliche Position!
+                    offset: { position: aktuellerTrack.playlist_position }
                 })
             });
 
